@@ -5,82 +5,51 @@ import TicketPaymentService from '../thirdparty/paymentgateway/TicketPaymentServ
 import SeatReservationService from '../thirdparty/seatbooking/SeatReservationService.js';
 
 export default class TicketService {
+  #PRICES = { INFANT: 0, CHILD: 15, ADULT: 25 };
+
   /**
-   * Should only have private methods other than the one below.
+   * purchaseTickets(accountId: number, ...ticketTypeRequests: TicketTypeRequest[])
    */
-
   purchaseTickets(accountId, ...ticketTypeRequests) {
-    let totalRequestTickets=0;
-    let INFANT=0;
-    let CHILD=15;
-    let ADULT=25;
-
-    let ticketAndNoOfTicketsMap = new Map();  
-
-    ticketTypeRequests.forEach(
-      ticketTypeRequest=> {
-        totalRequestTickets= totalRequestTickets + ticketTypeRequest.getNoOfTickets();
-        ticketAndNoOfTicketsMap.set(ticketTypeRequest.getTicketType(),ticketTypeRequest.getNoOfTickets());
+    if (!Number.isInteger(accountId) || accountId <= 0) {
+      throw new InvalidPurchaseException('accountId must be a positive integer');
+    }
+    if (!ticketTypeRequests || ticketTypeRequests.length === 0) {
+      throw new InvalidPurchaseException('At least one ticket request is required');
+    }
+    for (const r of ticketTypeRequests) {
+      if (!(r instanceof TicketTypeRequest)) {
+        throw new InvalidPurchaseException('All requests must be TicketTypeRequest instances');
       }
-    );
-
-    //
-    let conditions= this.#whetherAllConditionsSatisfied(accountId,totalRequestTickets,ticketAndNoOfTicketsMap);
-
-    if(conditions) {
-       let totalPurchaseAmount = 0;
-       totalPurchaseAmount = totalPurchaseAmount + ticketAndNoOfTicketsMap.get("ADULT") * ADULT;
-       this.#allocateSeat("ADULT", accountId, ticketAndNoOfTicketsMap);
-
-       if(ticketAndNoOfTicketsMap.has("INFANT"))
-         totalPurchaseAmount = totalPurchaseAmount + ticketAndNoOfTicketsMap.get("INFANT") * INFANT;
-
-       if(ticketAndNoOfTicketsMap.has("CHILD")) {
-         totalPurchaseAmount = totalPurchaseAmount + ticketAndNoOfTicketsMap.get("CHILD") * CHILD;
-         this.#allocateSeat("CHILD", accountId, ticketAndNoOfTicketsMap);
-       }
-       this.#sendPaymentPurchase(accountId, totalPurchaseAmount);
     }
-    else {
-       throw new InvalidPurchaseException('Tickets cannot be purchased');
+    const counts = { ADULT: 0, CHILD: 0, INFANT: 0 };
+    for (const req of ticketTypeRequests) {
+      counts[req.getTicketType()] += req.getNoOfTickets();
     }
-  }
 
-  #whetherAllConditionsSatisfied(accountId, totalRequestTickets,ticketAndNoOfTicketsMap) {
-    if(!Number.isInteger(accountId))
-      return false;
-    else if(accountId<=0)
-      return false;
-    else if(totalRequestTickets==0||totalRequestTickets>25)
-      return false;
-    else if(!ticketAndNoOfTicketsMap.has("ADULT") || ticketAndNoOfTicketsMap.get("ADULT")==0)
-      return false;
-    else if(!(ticketAndNoOfTicketsMap.get("INFANT")<=ticketAndNoOfTicketsMap.get("ADULT")))
-      return false; 
-    else return true;
-  }
+    const totalTickets = counts.ADULT + counts.CHILD + counts.INFANT;
 
-  #sendPaymentPurchase(accountId, totalPurchaseAmount) {
-    new TicketPaymentService(accountId,totalPurchaseAmount); 
-  }
+    if (totalTickets === 0) {
+      throw new InvalidPurchaseException('You must purchase at least 1 ticket');
+    }
+    if (totalTickets > 25) {
+      throw new InvalidPurchaseException('Cannot purchase more than 25 tickets at a time');
+    }
+    if (counts.ADULT === 0 && (counts.CHILD > 0 || counts.INFANT > 0)) {
+      throw new InvalidPurchaseException('Child/Infant tickets require at least one Adult');
+    }
+    if (counts.INFANT > counts.ADULT) {
+      throw new InvalidPurchaseException('Each Infant must have an Adult (infants cannot exceed adults)');
+    }
+    const amountToPay =
+      counts.ADULT * this.#PRICES.ADULT +
+      counts.CHILD * this.#PRICES.CHILD;
 
-  #allocateSeat(type, accountId, ticketAndNoOfTicketsMap) {
-    new SeatReservationService().reserveSeat(accountId,ticketAndNoOfTicketsMap.get(type));
+    const seatsToReserve = counts.ADULT + counts.CHILD;
+
+    new TicketPaymentService().makePayment(accountId, amountToPay);
+    new SeatReservationService().reserveSeat(accountId, seatsToReserve);
+
+    return { amountToPay, seatsToReserve, counts };
   }
 }
-
-//Navigate to pairtest folder in command prompt, run using node .TicketServce.js in terminal
-//Un comment below, only one purchaseTickets call at a time, 
-let x=  new TicketService();
-
-//Infants more than adults, so InvalidPurchaseException arises
-//x.purchaseTickets(1,new TicketTypeRequest("ADULT",10), new TicketTypeRequest("INFANT",11), new TicketTypeRequest("CHILD",4));
-
-//Here total tickets> 25 and Infants > Adults, so InvalidPurchaseException arises
-//x.purchaseTickets(1,new TicketTypeRequest("ADULT",10), new TicketTypeRequest("INFANT",11), new TicketTypeRequest("CHILD",9));
-
-//Account ID <=0, so InvalidPurchaseException arises
-//x.purchaseTickets(0,new TicketTypeRequest("ADULT",10), new TicketTypeRequest("INFANT",11), new TicketTypeRequest("CHILD",9));
-
-//Runs successfully without arising any InvalidPurchaseException
-x.purchaseTickets(1,new TicketTypeRequest("ADULT",9), new TicketTypeRequest("INFANT",9), new TicketTypeRequest("CHILD",4));

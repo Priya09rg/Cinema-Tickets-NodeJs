@@ -4,7 +4,6 @@
 
 export default class TicketTypeRequest {
   #type;
-
   #noOfTickets;
 
   constructor(type, noOfTickets) {
